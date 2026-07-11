@@ -1,4 +1,4 @@
-import { findUser, setSession, apiErrorResponse } from '@/lib/server/auth'
+import { findUser, setSession, verifyPassword, apiErrorResponse } from '@/lib/server/auth'
 import { DEMO_PASSWORD } from '@/lib/server/seed'
 
 export async function POST(req: Request) {
@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     }
 
     const user = findUser(email)
-    if (!user || password !== DEMO_PASSWORD) {
+    if (!user || !(await verifyPassword(user, password, DEMO_PASSWORD))) {
       return Response.json({ error: 'Неверный email или пароль' }, { status: 401 })
     }
     if (!user.active) {

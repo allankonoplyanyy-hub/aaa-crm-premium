@@ -95,6 +95,22 @@ export function findUser(email: string): User | undefined {
   return getDb().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase())
 }
 
+// Demo-grade hashing (SHA-256 via Web Crypto). Production must use bcrypt/argon2.
+export async function hashPassword(password: string): Promise<string> {
+  const data = new TextEncoder().encode(`aaa-crm::${password}`)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+export async function verifyPassword(user: User, password: string, demoPassword: string): Promise<boolean> {
+  if (user.passwordHash) {
+    return (await hashPassword(password)) === user.passwordHash
+  }
+  return password === demoPassword
+}
+
 export function apiErrorResponse(error: unknown): Response {
   if (error instanceof ApiError) {
     return Response.json({ error: error.message }, { status: error.status })

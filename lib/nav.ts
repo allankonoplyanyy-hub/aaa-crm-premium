@@ -34,7 +34,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Продажи',
     items: [
-      { title: 'Обзор', url: '/', icon: LayoutDashboard },
+      { title: 'Обзор', url: '/dashboard', icon: LayoutDashboard },
       { title: 'Сделки', url: '/pipeline', icon: KanbanSquare },
       { title: 'Контакты', url: '/contacts', icon: Users },
       { title: 'Компании', url: '/companies', icon: Building2 },

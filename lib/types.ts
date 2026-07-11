@@ -9,6 +9,8 @@ export interface User {
   title: string
   avatarInitials: string
   active: boolean
+  // SHA-256 hash for self-registered users; seed users fall back to the demo password.
+  passwordHash?: string
 }
 
 export interface Tenant {
