@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useMemo, useState } from 'react'
-import { Bot, Send, UserRound, Globe, MessageCircle, Camera, Mail } from 'lucide-react'
+import { ArrowLeft, Bot, Send, UserRound, Globe, MessageCircle, Camera, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -48,6 +48,8 @@ const CHANNEL_ICONS: Record<Channel, React.ComponentType<{ className?: string }>
 export function InboxView() {
   const { data, isLoading, mutate } = useWorkspace()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // On mobile the list and thread are stacked; this tracks which panel is visible.
+  const [threadOpen, setThreadOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -99,7 +101,12 @@ export function InboxView() {
   return (
     <div className="flex h-[calc(100svh-8rem)] min-h-0 overflow-hidden rounded-xl border bg-card">
       {/* Conversation list */}
-      <div className="flex w-full max-w-xs shrink-0 flex-col border-r">
+      <div
+        className={cn(
+          'w-full flex-col md:flex md:max-w-xs md:shrink-0 md:border-r',
+          threadOpen ? 'hidden' : 'flex',
+        )}
+      >
         <div className="border-b p-3">
           <h2 className="text-sm font-semibold">Диалоги</h2>
           <p className="text-xs text-muted-foreground">
@@ -119,6 +126,7 @@ export function InboxView() {
                 type="button"
                 onClick={() => {
                   setSelectedId(conv.id)
+                  setThreadOpen(true)
                   if (conv.unread > 0) {
                     patchConversation(conv.id, { markRead: true }).catch(() => {})
                   }
@@ -165,9 +173,18 @@ export function InboxView() {
 
       {/* Thread */}
       {selected ? (
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={cn('min-w-0 flex-1 flex-col md:flex', threadOpen ? 'flex' : 'hidden')}>
           <div className="flex items-center justify-between gap-3 border-b p-3">
-            <div className="min-w-0">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="md:hidden"
+              onClick={() => setThreadOpen(false)}
+              aria-label="Назад к списку диалогов"
+            >
+              <ArrowLeft />
+            </Button>
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">
                 {contactsById.get(selected.contactId)?.name ?? 'Неизвестный'}
               </p>

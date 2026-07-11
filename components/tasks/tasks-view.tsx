@@ -57,7 +57,14 @@ function NewTaskDialog({
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState('')
   const [type, setType] = useState('call')
-  const [dueAt, setDueAt] = useState('')
+  const [dueAt, setDueAt] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    d.setHours(10, 0, 0, 0)
+    // Format as datetime-local value in local time.
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
   const [dealId, setDealId] = useState<string | null>(null)
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
 
@@ -78,7 +85,6 @@ function NewTaskDialog({
       onCreated()
       setOpen(false)
       setTitle('')
-      setDueAt('')
       setDealId(null)
       toast.success('Задача создана')
     } catch (err) {
