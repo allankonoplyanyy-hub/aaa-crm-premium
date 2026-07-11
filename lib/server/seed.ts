@@ -13,7 +13,10 @@ import type {
   User,
 } from '@/lib/types'
 
-export const DEMO_PASSWORD = 'aaa-demo-2026'
+export const DEMO_PASSWORD = 'demo1234'
+
+// Bump when seed data changes so the dev-cached store re-seeds.
+export const SEED_VERSION = 2
 
 const now = Date.now()
 const days = (n: number, hours = 10) =>
@@ -172,7 +175,7 @@ export function createSeed(): Database {
     dl('d5', 't1', 'Летний интенсив — Полиглот', 'c6', 780000, 'won', 'u3', 'Telegram', 100, null, null, { createdAt: days(-40) }),
     dl('d6', 't1', 'Тренинг продаж — АвтоПрокат', 'c7', 640000, 'lost', 'u2', 'Сайт', 0, null, null, { lostReason: 'Выбрали конкурента по цене', createdAt: days(-35) }),
     dl('d7', 't1', 'Индивидуальный курс — Дана', 'c15', 240000, 'new', 'u3', 'Instagram', 15, 0, 'Первый звонок клиенту', { aiCreated: true, createdAt: days(-1) }),
-    dl('d8', 't1', 'Подготовка к IELTS — Олжас', 'c16', 320000, 'qualification', 'u3', 'Сайт', 35, -1, 'Перезвонить после пробного урока', { aiCreated: true, createdAt: days(-4) }),
+    dl('d8', 't1', 'Подготовка к IELTS — Олжас', 'c16', 320000, 'won', 'u3', 'Сайт', 100, null, null, { aiCreated: true, createdAt: days(-4) }),
     dl('d9', 't1', 'Корпоративный казахский — Логистик Азия', 'c9', 1750000, 'proposal', 'u3', 'Звонок', 55, 3, 'Презентация для HR-отдела', { createdAt: days(-12) }),
     dl('d10', 't1', 'Курс для администраторов — Дента Люкс', 'c10', 420000, 'new', 'u2', 'WhatsApp', 20, 1, 'Квалифицировать запрос', { aiCreated: true, createdAt: days(0) }),
     dl('d11', 't1', 'Обучение агрономов — Жетысу', 'c11', 2900000, 'negotiation', 'u3', 'Сайт', 65, -2, 'Обсудить скидку за объем', { tags: ['опт'], createdAt: days(-22) }),

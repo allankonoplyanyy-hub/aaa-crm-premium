@@ -1,4 +1,4 @@
-import { createSeed, type Database } from './seed'
+import { createSeed, SEED_VERSION, type Database } from './seed'
 
 // Repository abstraction: swap DemoRepository for a PostgresRepository in production.
 export interface Repository {
@@ -16,11 +16,15 @@ class DemoRepository implements Repository {
   }
 }
 
-const globalStore = globalThis as unknown as { __aaaCrmRepo?: DemoRepository }
+const globalStore = globalThis as unknown as {
+  __aaaCrmRepo?: DemoRepository
+  __aaaCrmSeedVersion?: number
+}
 
 export function getRepo(): Repository {
-  if (!globalStore.__aaaCrmRepo) {
+  if (!globalStore.__aaaCrmRepo || globalStore.__aaaCrmSeedVersion !== SEED_VERSION) {
     globalStore.__aaaCrmRepo = new DemoRepository()
+    globalStore.__aaaCrmSeedVersion = SEED_VERSION
   }
   return globalStore.__aaaCrmRepo
 }
