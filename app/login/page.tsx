@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { apiFetch } from '@/lib/api'
+import { IS_DEMO, DEMO_PASSWORD_HINT } from '@/lib/demo'
 
 const DEMO_ACCOUNTS = [
   { email: 'owner@aaa.ai', label: 'Владелец платформы', role: 'CEO AAA AI' },
@@ -19,18 +20,18 @@ const DEMO_ACCOUNTS = [
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('manager@school.kz')
-  const [password, setPassword] = useState('demo1234')
+  const [email, setEmail] = useState(IS_DEMO ? 'manager@school.kz' : '')
+  const [password, setPassword] = useState(IS_DEMO ? DEMO_PASSWORD_HINT : '')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
-  async function submit(loginEmail: string) {
+  async function submit(loginEmail: string, loginPassword: string) {
     setError(null)
     setPending(true)
     try {
       await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: { email: loginEmail, password: 'demo1234' },
+        body: { email: loginEmail, password: loginPassword },
       })
       router.push('/')
       router.refresh()
@@ -88,7 +89,7 @@ export default function LoginPage() {
               <div>
                 <p className="text-sm font-medium text-sidebar-foreground">Прозрачная аналитика</p>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Воронка, конверсия и вклад AI в выручку — в реальном времени
+                  Воронка, конверсия и вклад AI в выручку — на одном экране
                 </p>
               </div>
             </div>
@@ -115,7 +116,7 @@ export default function LoginPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              submit(email)
+              submit(email, password)
             }}
           >
             <FieldGroup>
@@ -143,9 +144,9 @@ export default function LoginPage() {
                 />
                 {error ? (
                   <FieldDescription className="text-destructive">{error}</FieldDescription>
-                ) : (
-                  <FieldDescription>Демо-пароль: demo1234</FieldDescription>
-                )}
+                ) : IS_DEMO ? (
+                  <FieldDescription>Демо-пароль: {DEMO_PASSWORD_HINT}</FieldDescription>
+                ) : null}
               </Field>
               <Field>
                 <Button type="submit" disabled={pending}>
@@ -156,6 +157,7 @@ export default function LoginPage() {
             </FieldGroup>
           </form>
 
+          {IS_DEMO && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
@@ -170,7 +172,8 @@ export default function LoginPage() {
                   disabled={pending}
                   onClick={() => {
                     setEmail(acc.email)
-                    submit(acc.email)
+                    setPassword(DEMO_PASSWORD_HINT)
+                    submit(acc.email, DEMO_PASSWORD_HINT)
                   }}
                   className="flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
                 >
@@ -182,6 +185,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
     </main>

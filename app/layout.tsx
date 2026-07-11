@@ -7,11 +7,18 @@ import './globals.css'
 const geistSans = Geist({ subsets: ['latin', 'cyrillic'], variable: '--font-geist-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
+const SITE_NAME = 'AAA CRM'
+const SITE_TITLE = 'AAA CRM — AI-платформа продаж'
+const SITE_DESCRIPTION =
+  'AAA CRM — CRM-платформа для малого и среднего бизнеса с AI-менеджерами, омниканальными диалогами, Voice AI и прозрачной аналитикой воронки продаж.'
+
 export const metadata: Metadata = {
-  title: 'AAA CRM — Управление продажами',
-  description:
-    'AAA CRM — современная CRM-платформа для малого и среднего бизнеса Казахстана с AI-менеджерами и омниканальными коммуникациями.',
-  generator: 'v0.app',
+  title: {
+    default: SITE_TITLE,
+    template: `%s — ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
   icons: {
     icon: [
       {
@@ -19,6 +26,27 @@ export const metadata: Metadata = {
         type: 'image/svg+xml',
       },
     ],
+  },
+  openGraph: {
+    type: 'website',
+    siteName: SITE_NAME,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    locale: 'ru_RU',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'AAA CRM — AI-платформа продаж',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ['/og.png'],
   },
 }
 

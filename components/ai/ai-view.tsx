@@ -14,6 +14,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { DemoBanner } from '@/components/shared/demo-banner'
 import { PageSkeleton } from '@/components/shared/page-skeleton'
 import { useWorkspace, canWrite } from '@/hooks/use-workspace'
 import { apiFetch } from '@/lib/api'
@@ -45,6 +46,7 @@ export function AiView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <DemoBanner text="AI-менеджеры работают в демонстрационном режиме: статистика и диалоги — примеры, реальные LLM-запросы не выполняются." />
       {tenant && (
         <Card>
           <CardHeader>

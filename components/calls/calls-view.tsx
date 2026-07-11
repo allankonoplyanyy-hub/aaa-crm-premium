@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { DemoBanner } from '@/components/shared/demo-banner'
 import { PageSkeleton } from '@/components/shared/page-skeleton'
 import { useWorkspace } from '@/hooks/use-workspace'
 import { formatDateTime, formatDuration } from '@/lib/format'
@@ -40,6 +41,7 @@ export function CallsView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <DemoBanner text="Телефония и Voice AI не подключены. Все звонки, транскрипты и AI-резюме — демонстрационные примеры." />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-muted-foreground">
@@ -47,9 +49,10 @@ export function CallsView() {
           </p>
         </div>
         <ToggleGroup
-          value={filter}
+          value={[filter]}
           onValueChange={(v) => {
-            if (v) setFilter(v as typeof filter)
+            const next = Array.isArray(v) ? v[0] : v
+            if (next) setFilter(next as typeof filter)
           }}
           variant="outline"
           size="sm"

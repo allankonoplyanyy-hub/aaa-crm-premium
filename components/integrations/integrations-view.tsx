@@ -10,8 +10,10 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { DemoBanner } from '@/components/shared/demo-banner'
 import { PageSkeleton } from '@/components/shared/page-skeleton'
 import { useWorkspace } from '@/hooks/use-workspace'
+import { IS_DEMO } from '@/lib/demo'
 import { relativeTime } from '@/lib/format'
 import type { IntegrationStatus } from '@/lib/types'
 
@@ -22,6 +24,14 @@ const STATUS_META: Record<
   connected: { label: 'Подключено', icon: CircleCheck, variant: 'default' },
   setup_required: { label: 'Требуется настройка', icon: CircleAlert, variant: 'secondary' },
   error: { label: 'Ошибка', icon: CircleX, variant: 'destructive' },
+}
+
+// In demo mode no external channel is actually connected — every card is
+// labeled honestly instead of claiming a live connection.
+const DEMO_STATUS_META: typeof STATUS_META = {
+  connected: { label: 'Демо', icon: CircleCheck, variant: 'secondary' },
+  setup_required: { label: 'Не подключено', icon: CircleAlert, variant: 'secondary' },
+  error: { label: 'Не подключено', icon: CircleX, variant: 'secondary' },
 }
 
 export function IntegrationsView() {
@@ -44,9 +54,11 @@ export function IntegrationsView() {
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <DemoBanner text="Показаны примеры интеграций. Реальные каналы (WhatsApp, Telegram, Instagram, Voice AI и другие) не подключены — все события сгенерированы для демонстрации." />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {data.integrations.map((integration) => {
-        const meta = STATUS_META[integration.status]
+        const meta = (IS_DEMO ? DEMO_STATUS_META : STATUS_META)[integration.status]
         const StatusIcon = meta.icon
         return (
           <Card key={integration.id}>
@@ -70,6 +82,7 @@ export function IntegrationsView() {
           </Card>
         )
       })}
+      </div>
     </div>
   )
 }

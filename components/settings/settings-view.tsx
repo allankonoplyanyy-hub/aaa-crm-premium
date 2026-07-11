@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { PageSkeleton } from '@/components/shared/page-skeleton'
 import { useWorkspace } from '@/hooks/use-workspace'
 import { ROLE_LABELS } from '@/lib/labels'
+import { IS_DEMO, DEMO_PASSWORD_HINT } from '@/lib/demo'
 import { formatKztShort } from '@/lib/format'
 
 const DEMO_ACCOUNTS = [
@@ -93,22 +94,24 @@ export function SettingsView() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Демо-доступы</CardTitle>
-          <CardDescription>
-            Пароль для всех аккаунтов: <span className="font-mono">demo1234</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {DEMO_ACCOUNTS.map((acc) => (
-            <div key={acc.email} className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-mono text-xs">{acc.email}</span>
-              <span className="text-right text-xs text-muted-foreground">{acc.role}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      {IS_DEMO && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Демо-доступы</CardTitle>
+            <CardDescription>
+              Пароль для всех аккаунтов: <span className="font-mono">{DEMO_PASSWORD_HINT}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {DEMO_ACCOUNTS.map((acc) => (
+              <div key={acc.email} className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-mono text-xs">{acc.email}</span>
+                <span className="text-right text-xs text-muted-foreground">{acc.role}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
