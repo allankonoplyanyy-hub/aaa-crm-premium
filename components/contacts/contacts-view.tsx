@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search, Plus, Phone, Mail, MessageCircle, Send, Instagram, ShieldCheck, ShieldOff } from 'lucide-react'
+import { Search, Plus, Phone, Mail, MessageCircle, Send, Camera, ShieldCheck, ShieldOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -331,7 +331,7 @@ export function ContactsView() {
                     )}
                     {openContact.instagram && (
                       <Badge variant="secondary" className="gap-1">
-                        <Instagram className="size-3" />
+                        <Camera className="size-3" />
                         {openContact.instagram}
                       </Badge>
                     )}
