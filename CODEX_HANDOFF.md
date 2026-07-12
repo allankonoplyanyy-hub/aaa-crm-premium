@@ -1,15 +1,22 @@
 # CODEX_HANDOFF — AAA CRM Premium
 
-Технический паспорт проекта для проверки. Обновлён: 2026-07-11.
+Технический паспорт проекта для проверки. Обновлён: 2026-07-12.
 
 ## 1. Архитектура
 
 - **Framework:** Next.js 16 (App Router, Turbopack), React 19, TypeScript (strict).
 - **UI:** Tailwind CSS v4 (токены в `app/globals.css`, `@theme inline`), shadcn/ui на Base UI (`components/ui/*`).
-- **Клиентские данные:** SWR поверх `/api/*`; мутации — `fetch` + `mutate()`.
-- **Серверные данные:** in-memory репозиторий (`lib/server/store.ts`), сид-данные (`lib/server/seed.ts`), доступ только через API-роуты.
-- **Auth/RBAC:** cookie-сессия + guard-функции (`lib/server/auth.ts`). Никакой логики доступа на клиенте не достаточно самой по себе — каждый API-роут проверяет права на сервере.
-- **Middleware:** отсутствует (не требуется — защита выполняется в layout `app/(app)/layout.tsx` через `getSessionUser()` + redirect, и в каждом API-роуте).
+- **Клиентские данные:** SWR поверх `/api/*`; мутации — `apiFetch` (`lib/api.ts`, добавляет CSRF-заголовок) + `mutate()`.
+- **Серверные данные:** Repository-абстракция (`lib/server/repository.ts`) с двумя реализациями:
+  - `PgRepository` (`lib/server/pg-repo.ts`) — **PostgreSQL (Neon)**, включается при наличии `DATABASE_URL`;
+  - `MemoryRepository` (`lib/server/memory-repo.ts`) — in-memory fallback для локального демо без БД.
+  - Выбор — в `lib/server/store.ts` (`getRepo()`); сид применяется автоматически в обе реализации.
+- **Схема БД:** `db/migrations/0001_init.sql` (tenants, users, sessions, contacts, client_companies, deals, tasks, conversations, messages, calls, assistants, knowledge, integrations, events, audit_log, integration_events). Все доменные таблицы имеют `company_id` + индексы; применяется `node scripts/migrate.mjs` (таблица `schema_migrations` защищает от повторного применения).
+- **Auth/RBAC:** серверные сессии в БД (`sessions`, случайный 256-битный токен, TTL 7 дней, sliding refresh) + guard-функции (`lib/server/auth.ts`). Пароли — scrypt (`lib/server/passwords.ts`); сидовые пользователи входят по `DEMO_PASSWORD` (по умолчанию `demo1234`), самозарегистрированные — только по своему хешу. Каждый API-роут проверяет права на сервере.
+- **CSRF:** double-submit cookie (`aaa_csrf`, читаемая) + заголовок `x-csrf-token` на всех мутациях; сверка в `assertCsrf`.
+- **Rate limiting:** на вход/регистрацию (in-memory sliding window, `lib/server/security.ts`).
+- **Валидация:** zod-схемы во всех мутирующих роутах.
+- **Middleware:** `proxy.ts` — редирект неавторизованных на `/login?next=…` для всех страниц CRM.
 
 ### Структура каталогов
 
@@ -103,12 +110,12 @@ Guards в `lib/server/auth.ts`: `assertCanWrite`, `assertAdmin`, `assertOwner`, 
 
 ## 6. Хранение данных (важно)
 
-- **PostgreSQL: НЕ используется.**
-- **localStorage: НЕ используется** (только httpOnly-cookie для сессии).
-- **In-memory store: используется.** Singleton на `globalThis` (`lib/server/store.ts`), сид версионируется (`SEED_VERSION`).
-- **Что сохраняется после перезагрузки страницы:** все демо-изменения (сделки, задачи, сообщения), пока жив процесс Node.js.
-- **Что исчезнет после рестарта сервера:** все изменения; база пересоздаётся из сида. На Vercel serverless инстанс может быть переработан в любой момент — данные эфемерны by design.
-- **Сессия** — httpOnly-cookie `aaa_session` с userId (НЕ подписана — демо-упрощение).
+- **PostgreSQL (Neon): используется**, когда задан `DATABASE_URL`. Все данные (тенанты, пользователи, сделки, диалоги, звонки, аудит) хранятся в БД и переживают рестарты и redeploy.
+- **In-memory fallback:** без `DATABASE_URL` работает `MemoryRepository` (локальное демо без внешних сервисов) — данные живут до рестарта процесса.
+- **localStorage: НЕ используется** (только httpOnly-cookie для сессии + читаемая CSRF-cookie).
+- **Сессии:** серверные, в таблице `sessions`. Cookie `aaa_session` содержит только случайный токен (256 бит), не userId. HttpOnly, Secure (в production), SameSite=Lax. TTL 7 дней со sliding-продлением; logout удаляет запись в БД.
+- **Пароли:** scrypt (N=16384, r=8, p=1, соль 16 байт, ключ 64 байта), формат `scrypt$N$r$p$salt$hash`. Тайминг-защита от перебора email (dummy verify).
+- **Аудит:** таблица `audit_log` — все мутации (create/update/delete, вход/выход, вебхуки) с actor, entity, meta.
 
 ## 7. Что работает в demo / что является mock
 
@@ -130,47 +137,67 @@ Guards в `lib/server/auth.ts`: `assertCanWrite`, `assertAdmin`, `assertOwner`, 
 
 ## 8. Известные ограничения
 
-1. Данные эфемерны (см. раздел 6).
-2. Пароль один на всех (`demo1234`), сравнение в открытом виде — только для демо.
-3. Cookie сессии не подписана и не шифруется.
-4. Нет rate limiting, CSRF-токенов, audit log.
-5. Нет пагинации — все списки грузятся целиком (приемлемо для объёма сида).
-6. Нет E2E-тестов (проверки выполнялись вручную в браузере, см. VALIDATION_REPORT.md).
+1. Rate limiting — in-memory (per-instance): при мультиинстансном деплое нужен Redis/Postgres-бекенд.
+2. Сидовые пользователи входят по общему `DEMO_PASSWORD` — намеренно для демо; самозарегистрированные всегда со scrypt-хешем.
+3. HMAC-секрет интеграционного API общий на инсталляцию (`INTEGRATION_WEBHOOK_SECRET`); per-tenant секреты — production follow-up.
+4. Нет пагинации — все списки грузятся целиком (приемлемо для текущего объёма).
+5. Нет E2E-тестов (проверки выполнялись вручную в браузере, см. VALIDATION_REPORT.md).
+6. `/api/workspace` возвращает полный снапшот компании — при росте данных разбить на отдельные ресурсы.
 
 ## 9. Команды
 
 ```bash
-pnpm install     # npm install тоже работает
-pnpm dev         # дев-сервер http://localhost:3000
-pnpm lint        # ESLint (0 ошибок)
-pnpm typecheck   # tsc --noEmit (0 ошибок)
-pnpm test        # vitest run — 16 тестов
-pnpm build       # next build — production-сборка
-pnpm start       # запуск production-сборки
+pnpm install                # npm install тоже работает
+node scripts/migrate.mjs    # применить миграции (нужен DATABASE_URL в env)
+pnpm dev                    # дев-сервер http://localhost:3000
+pnpm lint                   # ESLint (0 ошибок)
+pnpm typecheck              # tsc --noEmit (0 ошибок)
+pnpm test                   # vitest run — 29 тестов
+pnpm build                  # next build — production-сборка
+pnpm start                  # запуск production-сборки
 ```
 
 ## 10. Деплой
 
-- Хостинг: Vercel. Публикация — кнопкой Publish в v0 либо `vercel deploy` из корня.
-- Env-переменные: обязательных нет; опционально `NEXT_PUBLIC_DEMO_MODE=false` скрывает демо-подсказки (см. `.env.example`).
+- Хостинг: Vercel + Neon PostgreSQL (интеграция v0, `DATABASE_URL` проставляется автоматически).
+- Перед первым запуском на новой БД: `node scripts/migrate.mjs` (сид применится сам при первом обращении).
+- Env-переменные: `DATABASE_URL` (Neon), опционально `NEXT_PUBLIC_DEMO_MODE=false`, `INTEGRATION_WEBHOOK_SECRET` для API v1, `DEMO_PASSWORD` (см. `.env.example`).
 
-## 11. Production-блокеры (обязательно перед реальным запуском)
+## 11. Осталось до полного production (некритично для пилота)
 
-1. **PostgreSQL** (Neon/Supabase): реализовать `PostgresRepository` вместо `DemoRepository` — интерфейс `Repository` в `lib/server/store.ts` создан именно для этого. Добавить миграции (Drizzle).
-2. **Настоящая аутентификация**: хеширование паролей, подписанные сессии (Better Auth / Auth.js), сброс пароля.
-3. Реальные интеграции каналов (WhatsApp Business API и т.д.) и LLM-провайдер для AI-менеджеров.
-4. Rate limiting, CSRF, audit log, резервное копирование БД.
-5. Пагинация и серверная фильтрация списков.
+Выполнено с момента прошлой ревизии: PostgreSQL (Neon) + миграции, scrypt-пароли,
+серверные сессии в БД, CSRF, rate limiting, audit log, zod-валидация, health-endpoint,
+интеграционный API v1 (HMAC + idempotency).
 
-## 12. Файлы для первоочередной проверки Codex
+Остаётся:
+1. Реальные интеграции каналов (WhatsApp Business API и т.д.) и LLM-провайдер для AI-менеджеров.
+2. Сброс пароля по email; верификация email при регистрации.
+3. Per-tenant HMAC-секреты; распределённый rate limiting (Redis).
+4. Пагинация и серверная фильтрация списков; разбиение `/api/workspace`.
+5. Автоматическое резервное копирование настроено на стороне Neon (PITR) — проверить план.
 
-1. `lib/server/auth.ts` — RBAC + tenant isolation (ядро безопасности)
-2. `lib/server/store.ts`, `lib/server/seed.ts` — модель хранения
-3. `app/api/deals/route.ts`, `app/api/deals/[id]/route.ts` — образец CRUD-паттерна
-4. `app/api/workspace/route.ts` — фильтрация снапшота по тенанту
-5. `app/(app)/layout.tsx` — guard авторизованной зоны
-6. `lib/types.ts` — модели данных
-7. `components/pipeline/pipeline-view.tsx` — kanban + DnD
-8. `components/inbox/inbox-view.tsx` — чат + мобильный master-detail
-9. `tests/` — тестовое покрытие инвариантов
-10. `hooks/use-workspace.ts`, `lib/api.ts` — клиентский слой данных
+## 12. Интеграционный API v1 (для внешних сервисов)
+
+Аутентификация: заголовки `X-AAA-Company` (id тенанта), `X-AAA-Timestamp` (unix-секунды,
+окно 5 минут), `X-AAA-Signature` (hex HMAC-SHA256 от `"{timestamp}.{rawBody}"` с секретом
+`INTEGRATION_WEBHOOK_SECRET`). Идемпотентность — по `event_id` (повтор возвращает
+исходный результат с флагом `idempotent_replay`).
+
+| Роут | Назначение |
+| ---- | ---------- |
+| `POST /api/v1/leads` | Входящий лид (форма сайта, мессенджер-бот): создаёт контакт (dedupe по телефону) + сделку |
+| `POST /api/v1/voice-events` | Событие Voice AI-телефонии: звонок с транскриптом/резюме, привязка к контакту |
+| `GET /api/health` | Health/readiness: статус БД, режим хранилища |
+
+## 13. Файлы для первоочередной проверки Codex
+
+1. `lib/server/auth.ts` — сессии в БД, RBAC, CSRF, tenant isolation (ядро безопасности)
+2. `lib/server/repository.ts`, `lib/server/pg-repo.ts`, `lib/server/store.ts` — модель хранения (PG + fallback)
+3. `db/migrations/0001_init.sql`, `scripts/migrate.mjs` — схема и миграции
+4. `lib/server/passwords.ts` — scrypt-хеширование
+5. `lib/server/webhooks.ts`, `app/api/v1/*` — интеграционный API (HMAC, idempotency)
+6. `app/api/deals/route.ts`, `app/api/deals/[id]/route.ts` — образец CRUD-паттерна с zod
+7. `proxy.ts`, `app/(app)/layout.tsx` — двухуровневая защита страниц
+8. `lib/types.ts` — модели данных
+9. `tests/` — RBAC, изоляция, webhooks, scrypt (29 тестов)
+10. `hooks/use-workspace.ts`, `lib/api.ts` — клиентский слой (SWR + CSRF)

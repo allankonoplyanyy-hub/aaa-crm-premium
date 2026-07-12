@@ -2,7 +2,8 @@
 
 Многопользовательская multi-tenant CRM с AI-менеджерами, омниканальным инбоксом,
 Voice AI-журналом звонков и панелью владельца платформы (CEO Panel).
-Демо-версия работает полностью на in-memory-хранилище и не требует внешних сервисов.
+Данные хранятся в **PostgreSQL (Neon)**; без `DATABASE_URL` приложение
+автоматически работает на in-memory-хранилище (локальное демо без сервисов).
 
 Продакшен-деплой: https://aaa-crm-premium.vercel.app/
 
@@ -22,16 +23,20 @@ Voice AI-журналом звонков и панелью владельца п
 ## Стек
 
 - Next.js 16 (App Router) + React 19 + TypeScript
+- PostgreSQL (Neon) + `pg`; SQL-миграции в `db/migrations/`
 - Tailwind CSS v4 + shadcn/ui (Base UI)
 - SWR (данные на клиенте), @dnd-kit (kanban drag-and-drop), Recharts (графики)
-- Vitest (юнит-тесты), ESLint 9 + eslint-config-next
+- zod (валидация API), scrypt (пароли), Vitest (тесты), ESLint 9
 
 ## Быстрый старт
 
 ```bash
-pnpm install        # или npm install
-pnpm dev            # http://localhost:3000
+pnpm install                # или npm install
+node scripts/migrate.mjs    # применить миграции (нужен DATABASE_URL)
+pnpm dev                    # http://localhost:3000
 ```
+
+Без `DATABASE_URL` шаг миграций не нужен — включится in-memory-режим.
 
 ## Команды
 
@@ -50,7 +55,7 @@ pnpm dev            # http://localhost:3000
 
 Пароль для всех сидовых аккаунтов: `demo1234`. Также можно зарегистрировать
 собственную компанию на `/register` — она получит пустое изолированное
-пространство, а пароль будет захеширован (SHA-256) и действует только для неё.
+пространство, а пароль будет захеширован (scrypt) и действует только для неё.
 
 | Email               | Роль     | Область                             |
 | ------------------- | -------- | ----------------------------------- |
@@ -60,14 +65,18 @@ pnpm dev            # http://localhost:3000
 | `viewer@school.kz`  | viewer   | «Академия Успех» (только чтение)    |
 | `manager@stroy.kz`  | manager  | «СтройКомплект»                     |
 
-## Важно: хранение данных
+## Хранение данных и безопасность
 
-Это демо. Все данные живут в **in-memory store** внутри процесса Node.js
-(`lib/server/store.ts` + сид `lib/server/seed.ts`). Изменения переживают
-обновление страницы, но **исчезают при перезапуске сервера** (и на serverless-
-инстансах Vercel могут сбрасываться между вызовами). PostgreSQL и localStorage
-**не используются**. Подробности и план перехода на продакшен —
-в [CODEX_HANDOFF.md](./CODEX_HANDOFF.md).
+- **PostgreSQL (Neon)** — основное хранилище: все сущности с `company_id`,
+  индексами и внешними ключами (`db/migrations/0001_init.sql`).
+- **Сессии** — серверные, в таблице `sessions` (случайный токен, HttpOnly cookie,
+  TTL 7 дней). **Пароли** — scrypt. **CSRF** — double-submit cookie.
+- **Rate limiting** на вход/регистрацию, **audit log** всех мутаций,
+  zod-валидация всех API-запросов, health-endpoint `/api/health`.
+- Интеграционный API v1 (`/api/v1/leads`, `/api/v1/voice-events`) —
+  HMAC-подпись + идемпотентность по `event_id`.
+
+Подробности — в [CODEX_HANDOFF.md](./CODEX_HANDOFF.md).
 
 ## Документация
 
