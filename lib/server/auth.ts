@@ -1,41 +1,96 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { cookies } from 'next/headers'
-import type { Role, SessionUser, User } from '@/lib/types'
-import { getDb } from './store'
+import type { Role, SessionUser } from '@/lib/types'
+import { getRepo } from './store'
+import type { SessionRecord } from './repository'
 
-const SESSION_COOKIE = 'aaa_session'
-const COMPANY_COOKIE = 'aaa_company'
+export const SESSION_COOKIE = 'aaa_session'
+export const CSRF_COOKIE = 'aaa_csrf'
+export const CSRF_HEADER = 'x-csrf-token'
 
-export async function setSession(userId: string) {
-  const jar = await cookies()
-  jar.set(SESSION_COOKIE, userId, { httpOnly: true, sameSite: 'lax', path: '/' })
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
-export async function clearSession() {
+function cookieFlags() {
+  // The v0 preview renders the app in a cross-site iframe: cookies need
+  // SameSite=None there. Production uses Lax + Secure.
+  const dev = process.env.NODE_ENV === 'development'
+  return {
+    httpOnly: true,
+    secure: true,
+    sameSite: (dev ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+  }
+}
+
+/** Creates a DB-backed session + CSRF token and sets both cookies. */
+export async function createSession(userId: string): Promise<void> {
+  const repo = await getRepo()
+  const token = randomBytes(32).toString('base64url')
+  const csrf = randomBytes(24).toString('base64url')
+  const now = new Date()
+  const record: SessionRecord = {
+    tokenHash: hashToken(token),
+    userId,
+    activeCompanyId: null,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+    revokedAt: null,
+  }
+  await repo.sessions.create(record)
+
   const jar = await cookies()
+  const flags = cookieFlags()
+  jar.set(SESSION_COOKIE, token, { ...flags, maxAge: SESSION_TTL_MS / 1000 })
+  // CSRF cookie is intentionally readable by JS (double-submit pattern).
+  jar.set(CSRF_COOKIE, csrf, { ...flags, httpOnly: false, maxAge: SESSION_TTL_MS / 1000 })
+}
+
+/** Revokes the current session server-side and clears cookies. */
+export async function destroySession(): Promise<void> {
+  const jar = await cookies()
+  const token = jar.get(SESSION_COOKIE)?.value
+  if (token) {
+    const repo = await getRepo()
+    await repo.sessions.revoke(hashToken(token))
+  }
   jar.delete(SESSION_COOKIE)
-  jar.delete(COMPANY_COOKIE)
+  jar.delete(CSRF_COOKIE)
 }
 
-export async function setActiveCompany(companyId: string) {
+/** Force-invalidate every session of a user (e.g. deactivation, password change). */
+export async function revokeAllSessions(userId: string): Promise<void> {
+  const repo = await getRepo()
+  await repo.sessions.revokeAllForUser(userId)
+}
+
+async function getSessionRecord(): Promise<SessionRecord | null> {
   const jar = await cookies()
-  jar.set(COMPANY_COOKIE, companyId, { httpOnly: true, sameSite: 'lax', path: '/' })
+  const token = jar.get(SESSION_COOKIE)?.value
+  if (!token) return null
+  const repo = await getRepo()
+  const record = await repo.sessions.get(hashToken(token))
+  if (!record) return null
+  if (record.revokedAt) return null
+  if (new Date(record.expiresAt).getTime() < Date.now()) return null
+  return record
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const jar = await cookies()
-  const userId = jar.get(SESSION_COOKIE)?.value
-  if (!userId) return null
-  const db = getDb()
-  const user = db.users.find((u) => u.id === userId && u.active)
-  if (!user) return null
+  const record = await getSessionRecord()
+  if (!record) return null
+  const repo = await getRepo()
+  const user = await repo.users.byId(record.userId)
+  if (!user || !user.active) return null
 
-  // Owner can switch active company; everyone else is locked to their tenant.
+  // Owner company switch is stored server-side in the session record.
   let activeCompanyId = user.companyId
-  if (user.role === 'owner') {
-    const requested = jar.get(COMPANY_COOKIE)?.value
-    if (requested && db.tenants.some((t) => t.id === requested)) {
-      activeCompanyId = requested
-    }
+  if (user.role === 'owner' && record.activeCompanyId) {
+    const tenant = await repo.tenants.byId(record.activeCompanyId)
+    if (tenant) activeCompanyId = tenant.id
   }
 
   return {
@@ -50,6 +105,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   }
 }
 
+/** Owner-only: persist the active company on the server-side session. */
+export async function setActiveCompany(companyId: string): Promise<void> {
+  const record = await getSessionRecord()
+  if (!record) throw new ApiError(401, 'Требуется авторизация')
+  const repo = await getRepo()
+  record.activeCompanyId = companyId
+  await repo.sessions.update(record)
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -62,6 +126,21 @@ export async function requireSession(): Promise<SessionUser> {
   const session = await getSessionUser()
   if (!session) throw new ApiError(401, 'Требуется авторизация')
   return session
+}
+
+// CSRF: double-submit cookie. Write requests must echo the CSRF cookie in a header.
+export async function assertCsrf(req: Request): Promise<void> {
+  const jar = await cookies()
+  const cookieValue = jar.get(CSRF_COOKIE)?.value
+  const headerValue = req.headers.get(CSRF_HEADER)
+  if (!cookieValue || !headerValue) {
+    throw new ApiError(403, 'CSRF-токен отсутствует')
+  }
+  const a = Buffer.from(cookieValue)
+  const b = Buffer.from(headerValue)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    throw new ApiError(403, 'Неверный CSRF-токен')
+  }
 }
 
 const WRITE_ROLES: Role[] = ['owner', 'admin', 'manager']
@@ -85,36 +164,17 @@ export function assertOwner(session: SessionUser) {
 }
 
 // Tenant isolation: entity must belong to the session's active company.
+// Cross-tenant lookups return 404 without leaking existence.
 export function assertTenant(session: SessionUser, entityCompanyId: string) {
   if (entityCompanyId !== session.activeCompanyId) {
     throw new ApiError(404, 'Запись не найдена')
   }
 }
 
-export function findUser(email: string): User | undefined {
-  return getDb().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase())
-}
-
-// Demo-grade hashing (SHA-256 via Web Crypto). Production must use bcrypt/argon2.
-export async function hashPassword(password: string): Promise<string> {
-  const data = new TextEncoder().encode(`aaa-crm::${password}`)
-  const digest = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-export async function verifyPassword(user: User, password: string, demoPassword: string): Promise<boolean> {
-  if (user.passwordHash) {
-    return (await hashPassword(password)) === user.passwordHash
-  }
-  return password === demoPassword
-}
-
 export function apiErrorResponse(error: unknown): Response {
   if (error instanceof ApiError) {
     return Response.json({ error: error.message }, { status: error.status })
   }
-  console.error('[v0] API error:', error)
+  console.error('[api] unhandled error:', error)
   return Response.json({ error: 'Внутренняя ошибка сервера' }, { status: 500 })
 }

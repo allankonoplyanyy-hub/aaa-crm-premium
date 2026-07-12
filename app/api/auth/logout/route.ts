@@ -1,6 +1,11 @@
-import { clearSession } from '@/lib/server/auth'
+import { destroySession, apiErrorResponse } from '@/lib/server/auth'
 
 export async function POST() {
-  await clearSession()
-  return Response.json({ ok: true })
+  try {
+    // Revokes the session row in the store and clears both cookies.
+    await destroySession()
+    return Response.json({ ok: true })
+  } catch (error) {
+    return apiErrorResponse(error)
+  }
 }
