@@ -82,3 +82,4 @@ pnpm dev                    # http://localhost:3000
 
 - [CODEX_HANDOFF.md](./CODEX_HANDOFF.md) — архитектура, API, роли, ограничения
 - [VALIDATION_REPORT.md](./VALIDATION_REPORT.md) — результаты проверок
+- [docs/BACKUP_RESTORE.md](./docs/BACKUP_RESTORE.md) — резервное копирование и восстановление (Neon PITR, pg_dump)

@@ -5,8 +5,29 @@ import {
   assertCsrf,
   apiErrorResponse,
 } from '@/lib/server/auth'
+import { parsePageParams, paginate } from '@/lib/server/security'
 import { getRepo, uid } from '@/lib/server/store'
 import type { Task, TaskType } from '@/lib/types'
+
+// GET /api/tasks?limit=50&offset=0&done=false — paginated list scoped to tenant.
+export async function GET(req: Request) {
+  try {
+    const session = await requireSession()
+    const url = new URL(req.url)
+    const page = parsePageParams(url)
+    const done = url.searchParams.get('done')
+
+    const repo = await getRepo()
+    let tasks = await repo.tasks.listByCompany(session.activeCompanyId)
+    if (done === 'true') tasks = tasks.filter((t) => t.done)
+    if (done === 'false') tasks = tasks.filter((t) => !t.done)
+    tasks.sort((a, b) => (a.dueAt > b.dueAt ? 1 : -1))
+
+    return Response.json(paginate(tasks, page))
+  } catch (error) {
+    return apiErrorResponse(error)
+  }
+}
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(1, 'Укажите название задачи').max(300),

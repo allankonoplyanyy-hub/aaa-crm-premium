@@ -1,7 +1,27 @@
 import { z } from 'zod'
 import { requireSession, assertCanWrite, assertCsrf, apiErrorResponse } from '@/lib/server/auth'
+import { parsePageParams, paginate } from '@/lib/server/security'
 import { getRepo, uid } from '@/lib/server/store'
 import type { Deal, DealStage, LeadSource } from '@/lib/types'
+
+// GET /api/deals?limit=50&offset=0&stage=new — paginated list scoped to tenant.
+export async function GET(req: Request) {
+  try {
+    const session = await requireSession()
+    const url = new URL(req.url)
+    const page = parsePageParams(url)
+    const stage = url.searchParams.get('stage')
+
+    const repo = await getRepo()
+    let deals = await repo.deals.listByCompany(session.activeCompanyId)
+    if (stage) deals = deals.filter((d) => d.stage === stage)
+    deals.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+
+    return Response.json(paginate(deals, page))
+  } catch (error) {
+    return apiErrorResponse(error)
+  }
+}
 
 const LEAD_SOURCES = ['Сайт', 'Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Рекомендация', '2ГИС'] as const
 const STAGES = ['new', 'qualification', 'proposal', 'negotiation', 'approval', 'won', 'lost'] as const

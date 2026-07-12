@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
 import { ApiError } from './auth'
 
 // ---------------------------------------------------------------------------
@@ -48,29 +47,36 @@ export function clientIp(req: Request): string {
   return fwd ? fwd.split(',')[0].trim() : 'local'
 }
 
+// HMAC auth for the v1 integration API lives in lib/server/webhooks.ts
+// (verifyWebhook: INTEGRATION_WEBHOOK_SECRET, timestamp window, idempotency).
+
 // ---------------------------------------------------------------------------
-// Service-to-service HMAC auth for the v1 integration API.
-// Signature: hex(hmac_sha256(secret, `${timestamp}.${rawBody}`))
+// Pagination: shared helper for list endpoints.
 // ---------------------------------------------------------------------------
 
-const MAX_SKEW_MS = 5 * 60 * 1000
+export interface PageParams {
+  limit: number
+  offset: number
+}
 
-export function verifyHmac(rawBody: string, timestamp: string | null, signature: string | null): void {
-  const secret = process.env.INTEGRATION_SIGNING_SECRET
-  if (!secret) {
-    throw new ApiError(503, 'Интеграционный API не настроен (INTEGRATION_SIGNING_SECRET)')
-  }
-  if (!timestamp || !signature) {
-    throw new ApiError(401, 'Отсутствует подпись запроса')
-  }
-  const ts = Number(timestamp)
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > MAX_SKEW_MS) {
-    throw new ApiError(401, 'Метка времени запроса вне допустимого окна')
-  }
-  const expected = createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex')
-  const a = Buffer.from(expected)
-  const b = Buffer.from(signature)
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    throw new ApiError(401, 'Неверная подпись запроса')
+export const DEFAULT_PAGE_LIMIT = 50
+export const MAX_PAGE_LIMIT = 200
+
+export function parsePageParams(url: URL): PageParams {
+  const rawLimit = Number(url.searchParams.get('limit') ?? DEFAULT_PAGE_LIMIT)
+  const rawOffset = Number(url.searchParams.get('offset') ?? 0)
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(Math.trunc(rawLimit), 1), MAX_PAGE_LIMIT)
+    : DEFAULT_PAGE_LIMIT
+  const offset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0
+  return { limit, offset }
+}
+
+export function paginate<T>(items: T[], { limit, offset }: PageParams) {
+  return {
+    items: items.slice(offset, offset + limit),
+    total: items.length,
+    limit,
+    offset,
   }
 }

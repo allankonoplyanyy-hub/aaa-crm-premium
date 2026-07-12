@@ -1,7 +1,31 @@
 import { z } from 'zod'
 import { requireSession, assertCanWrite, assertCsrf, apiErrorResponse } from '@/lib/server/auth'
+import { parsePageParams, paginate } from '@/lib/server/security'
 import { getRepo, uid } from '@/lib/server/store'
 import type { Contact, LeadSource } from '@/lib/types'
+
+// GET /api/contacts?limit=50&offset=0&q=иван — paginated list scoped to tenant.
+export async function GET(req: Request) {
+  try {
+    const session = await requireSession()
+    const url = new URL(req.url)
+    const page = parsePageParams(url)
+    const q = url.searchParams.get('q')?.trim().toLowerCase()
+
+    const repo = await getRepo()
+    let contacts = await repo.contacts.listByCompany(session.activeCompanyId)
+    if (q) {
+      contacts = contacts.filter(
+        (c) => c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q),
+      )
+    }
+    contacts.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+
+    return Response.json(paginate(contacts, page))
+  } catch (error) {
+    return apiErrorResponse(error)
+  }
+}
 
 const LEAD_SOURCES = ['Сайт', 'Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Рекомендация', '2ГИС'] as const
 
