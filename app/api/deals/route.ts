@@ -1,54 +1,79 @@
-import { requireSession, assertCanWrite, apiErrorResponse } from '@/lib/server/auth'
-import { getDb, uid } from '@/lib/server/store'
+import { z } from 'zod'
+import { requireSession, assertCanWrite, assertCsrf, apiErrorResponse } from '@/lib/server/auth'
+import { getRepo, uid } from '@/lib/server/store'
 import type { Deal, DealStage, LeadSource } from '@/lib/types'
+
+const LEAD_SOURCES = ['Сайт', 'Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Рекомендация', '2ГИС'] as const
+const STAGES = ['new', 'qualification', 'proposal', 'negotiation', 'approval', 'won', 'lost'] as const
+
+const createDealSchema = z.object({
+  title: z.string().trim().min(1, 'Укажите название сделки').max(300),
+  amountKzt: z.number().finite().min(0, 'Некорректная сумма').max(1_000_000_000_000),
+  stage: z.enum(STAGES).optional().default('new'),
+  contactId: z.string().max(64).nullish(),
+  ownerId: z.string().max(64).nullish(),
+  source: z.enum(LEAD_SOURCES).optional().default('Сайт'),
+  probability: z.number().min(0).max(100).optional().default(20),
+  nextActionAt: z.string().nullish(),
+  nextActionText: z.string().max(500).nullish(),
+  closeDate: z.string().nullish(),
+  tags: z.array(z.string().max(60)).max(20).optional().default([]),
+})
 
 export async function POST(req: Request) {
   try {
     const session = await requireSession()
     assertCanWrite(session)
-    const body = (await req.json()) as Partial<Deal>
+    await assertCsrf(req)
 
-    if (!body.title?.trim()) {
-      return Response.json({ error: 'Укажите название сделки' }, { status: 400 })
+    const parsed = createDealSchema.safeParse(await req.json())
+    if (!parsed.success) {
+      return Response.json(
+        { error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+        { status: 400 },
+      )
     }
-    const amount = Number(body.amountKzt)
-    if (!Number.isFinite(amount) || amount < 0) {
-      return Response.json({ error: 'Некорректная сумма' }, { status: 400 })
-    }
+    const body = parsed.data
 
-    const db = getDb()
+    const repo = await getRepo()
     const cid = session.activeCompanyId
-    const contact = body.contactId
-      ? db.contacts.find((c) => c.id === body.contactId && c.companyId === cid)
-      : null
 
+    let contact = null
+    if (body.contactId) {
+      const c = await repo.contacts.byId(body.contactId)
+      if (c && c.companyId === cid) contact = c
+    }
+    let ownerId = session.id
+    if (body.ownerId) {
+      const u = await repo.users.byId(body.ownerId)
+      if (u && u.companyId === cid) ownerId = u.id
+    }
+
+    const nowIso = new Date().toISOString()
     const deal: Deal = {
       id: uid('d'),
       companyId: cid,
-      title: body.title.trim(),
+      title: body.title,
       clientCompanyId: contact?.clientCompanyId ?? null,
       contactId: contact?.id ?? null,
-      amountKzt: amount,
-      stage: (body.stage as DealStage) || 'new',
-      ownerId:
-        body.ownerId && db.users.some((u) => u.id === body.ownerId && u.companyId === cid)
-          ? body.ownerId
-          : session.id,
-      source: (body.source as LeadSource) || 'Сайт',
-      probability: typeof body.probability === 'number' ? body.probability : 20,
+      amountKzt: body.amountKzt,
+      stage: body.stage as DealStage,
+      ownerId,
+      source: body.source as LeadSource,
+      probability: body.probability,
       nextActionAt: body.nextActionAt ?? null,
       nextActionText: body.nextActionText ?? null,
       closeDate: body.closeDate ?? null,
-      tags: Array.isArray(body.tags) ? body.tags : [],
+      tags: body.tags,
       aiCreated: false,
       lostReason: null,
       notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
     }
 
-    db.deals.unshift(deal)
-    db.events.unshift({
+    await repo.deals.insert(deal)
+    await repo.events.insert({
       id: uid('e'),
       companyId: cid,
       actorId: session.id,
@@ -56,7 +81,14 @@ export async function POST(req: Request) {
       text: `${session.name} создал(а) сделку «${deal.title}»`,
       entity: 'deal',
       entityId: deal.id,
-      at: new Date().toISOString(),
+      at: nowIso,
+    })
+    await repo.audit({
+      companyId: cid,
+      actorId: session.id,
+      action: 'deal.create',
+      entity: 'deal',
+      entityId: deal.id,
     })
 
     return Response.json(deal, { status: 201 })

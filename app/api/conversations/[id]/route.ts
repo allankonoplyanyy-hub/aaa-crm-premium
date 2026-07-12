@@ -1,27 +1,36 @@
+import { z } from 'zod'
 import {
   requireSession,
   assertCanWrite,
+  assertCsrf,
   assertTenant,
   apiErrorResponse,
   ApiError,
 } from '@/lib/server/auth'
-import { getDb, uid } from '@/lib/server/store'
+import { getRepo, uid } from '@/lib/server/store'
+
+const patchConversationSchema = z.object({
+  markRead: z.boolean().optional(),
+  transferToHuman: z.boolean().optional(),
+  message: z.string().max(4000).optional(),
+})
 
 // PATCH: mark read / transfer to human / send message
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireSession()
     const { id } = await params
-    const db = getDb()
-    const conv = db.conversations.find((c) => c.id === id)
+
+    const repo = await getRepo()
+    const conv = await repo.conversations.byId(id)
     if (!conv) throw new ApiError(404, 'Диалог не найден')
     assertTenant(session, conv.companyId)
 
-    const body = (await req.json()) as {
-      markRead?: boolean
-      transferToHuman?: boolean
-      message?: string
+    const parsed = patchConversationSchema.safeParse(await req.json())
+    if (!parsed.success) {
+      return Response.json({ error: 'Некорректные данные' }, { status: 400 })
     }
+    const body = parsed.data
 
     // Reading is allowed for all roles including viewer.
     if (body.markRead) {
@@ -30,9 +39,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     if (body.transferToHuman) {
       assertCanWrite(session)
+      await assertCsrf(req)
       conv.handledBy = 'human'
       conv.assigneeId = session.id
-      db.events.unshift({
+      await repo.events.insert({
         id: uid('e'),
         companyId: conv.companyId,
         actorId: session.id,
@@ -44,8 +54,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       })
     }
 
-    if (typeof body.message === 'string' && body.message.trim()) {
+    if (body.message?.trim()) {
       assertCanWrite(session)
+      await assertCsrf(req)
       conv.messages.push({
         id: uid('m'),
         from: 'manager',
@@ -59,6 +70,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       conv.updatedAt = new Date().toISOString()
     }
 
+    await repo.conversations.update(conv)
     return Response.json(conv)
   } catch (error) {
     return apiErrorResponse(error)

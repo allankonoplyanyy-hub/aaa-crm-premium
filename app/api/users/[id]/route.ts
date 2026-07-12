@@ -1,21 +1,28 @@
+import { z } from 'zod'
 import {
   requireSession,
   assertAdmin,
+  assertCsrf,
+  revokeAllSessions,
   apiErrorResponse,
   ApiError,
 } from '@/lib/server/auth'
-import { getDb, uid } from '@/lib/server/store'
-import type { Role } from '@/lib/types'
+import { getRepo, uid } from '@/lib/server/store'
 
-const ASSIGNABLE_ROLES: Role[] = ['admin', 'manager', 'viewer']
+const patchUserSchema = z.object({
+  role: z.enum(['admin', 'manager', 'viewer']).optional(),
+  active: z.boolean().optional(),
+})
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireSession()
     assertAdmin(session)
+    await assertCsrf(req)
     const { id } = await params
-    const db = getDb()
-    const user = db.users.find((u) => u.id === id)
+
+    const repo = await getRepo()
+    const user = await repo.users.byId(id)
     if (!user) throw new ApiError(404, 'Пользователь не найден')
     if (user.role === 'owner') throw new ApiError(403, 'Нельзя изменить владельца платформы')
     // Admin can only manage users of their own company; owner manages all.
@@ -23,14 +30,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       throw new ApiError(404, 'Пользователь не найден')
     }
 
-    const body = (await req.json()) as { role?: Role; active?: boolean }
-    if (body.role) {
-      if (!ASSIGNABLE_ROLES.includes(body.role)) throw new ApiError(400, 'Недопустимая роль')
-      user.role = body.role
+    const parsed = patchUserSchema.safeParse(await req.json())
+    if (!parsed.success) {
+      return Response.json({ error: 'Некорректные данные' }, { status: 400 })
     }
-    if (typeof body.active === 'boolean') user.active = body.active
+    const body = parsed.data
 
-    db.events.unshift({
+    if (body.role) user.role = body.role
+    if (typeof body.active === 'boolean') {
+      user.active = body.active
+      // Deactivation kills all live sessions of that user immediately.
+      if (!body.active) await revokeAllSessions(user.id)
+    }
+
+    await repo.users.update(user)
+    await repo.events.insert({
       id: uid('e'),
       companyId: user.companyId,
       actorId: session.id,
@@ -40,8 +54,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       entityId: user.id,
       at: new Date().toISOString(),
     })
+    await repo.audit({
+      companyId: user.companyId,
+      actorId: session.id,
+      action: 'user.update',
+      entity: 'user',
+      entityId: user.id,
+      meta: { role: body.role, active: body.active },
+    })
 
-    return Response.json(user)
+    const { passwordHash: _ph, ...safeUser } = user
+    return Response.json(safeUser)
   } catch (error) {
     return apiErrorResponse(error)
   }

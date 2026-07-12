@@ -8,8 +8,8 @@ import {
   assertAdmin,
   assertOwner,
   assertTenant,
-  findUser,
 } from '@/lib/server/auth'
+import { hashPassword, verifyPassword } from '@/lib/server/passwords'
 
 // auth.ts imports next/headers (server-only); mock it for unit tests.
 vi.mock('next/headers', () => ({
@@ -81,11 +81,26 @@ describe('tenant isolation guard', () => {
   })
 })
 
-describe('findUser', () => {
-  it('finds seed users case-insensitively with whitespace trimmed', () => {
-    expect(findUser('owner@aaa.ai')?.role).toBe('owner')
-    expect(findUser('  OWNER@AAA.AI  ')?.role).toBe('owner')
-    expect(findUser('viewer@school.kz')?.role).toBe('viewer')
-    expect(findUser('nobody@nowhere.kz')).toBeUndefined()
+describe('password hashing (scrypt)', () => {
+  it('hashes and verifies a password', async () => {
+    const hash = await hashPassword('correct horse battery staple')
+    expect(hash.startsWith('scrypt$')).toBe(true)
+    expect(await verifyPassword('correct horse battery staple', hash)).toBe(true)
+  })
+
+  it('rejects a wrong password', async () => {
+    const hash = await hashPassword('password-one')
+    expect(await verifyPassword('password-two', hash)).toBe(false)
+  })
+
+  it('produces unique salts per hash', async () => {
+    const [a, b] = await Promise.all([hashPassword('same'), hashPassword('same')])
+    expect(a).not.toBe(b)
+  })
+
+  it('rejects malformed or missing stored hashes', async () => {
+    expect(await verifyPassword('x', null)).toBe(false)
+    expect(await verifyPassword('x', '')).toBe(false)
+    expect(await verifyPassword('x', 'sha256$broken')).toBe(false)
   })
 })

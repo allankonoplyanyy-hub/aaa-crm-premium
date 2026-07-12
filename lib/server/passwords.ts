@@ -1,7 +1,14 @@
-import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto'
-import { promisify } from 'node:util'
+import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from 'node:crypto'
 
-const scrypt = promisify(scryptCb)
+// promisify() loses the 4-argument overload with options; wrap manually.
+function scrypt(password: string, salt: Buffer, keylen: number, opts: ScryptOptions): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCb(password, salt, keylen, opts, (err, derived) => {
+      if (err) reject(err)
+      else resolve(derived)
+    })
+  })
+}
 
 // scrypt parameters (N=16384, r=8, p=1) — OWASP-acceptable interactive login cost.
 const SCRYPT_OPTS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
